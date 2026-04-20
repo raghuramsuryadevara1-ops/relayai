@@ -1,0 +1,37 @@
+# Secrets — never push these
+.env
+*.key
+*.pem
+*.p12
+secrets.json
+
+# RelayAI local config
+.relayai/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.venv/
+venv/
+env/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
