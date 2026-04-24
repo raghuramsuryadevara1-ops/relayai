@@ -1,8 +1,4 @@
 click>=8.0
 rich>=13.0
 anthropic>=0.25.0
-google-generativeai>=0.5.0
-google-auth-oauthlib>=1.0
-google-auth>=2.0
 keyring>=24.0
-requests>=2.28

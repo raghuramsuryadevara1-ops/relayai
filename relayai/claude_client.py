@@ -1,101 +1,76 @@
+from typing import Tuple
+
 import anthropic
+
 from . import auth
 
-CLAUDE_SYSTEM_PROMPT = """You are a powerful AI coding assistant and reasoning engine — like a senior software engineer.
+CLAUDE_SYSTEM_PROMPT = """\
+You are a precise code planning engine.
+Your ONLY job is to create a numbered implementation plan.
 
-Your job is to:
-1. Deeply understand the user's request
-2. Analyze the project context provided
-3. Think step by step
-4. Produce a complete, accurate, and thorough response
+RULES:
+- Output ONLY a numbered plan. Never write actual code.
+- Be extremely specific about:
+  * Exact class names and method names
+  * Exact parameters and their types
+  * Exact return values and their types
+  * Exact logic flow step by step
+  * Exact error handling: which exceptions to raise and when
+  * Exact docstring content required
+  * Exact edge cases to handle
+- Number every step so they are followed in order
+- Include type hints requirements explicitly
+- Include docstring requirements explicitly
+- Use only as many tokens as the task actually needs.
+   Simple tasks (single function, small class) = 50-150 tokens.
+   Medium tasks (multiple classes, small module) = 150-500 tokens.
+   Complex tasks (full API, multi-file project) = 500-1500 tokens.
+   Never pad or repeat yourself to fill tokens.
+   Never truncate a plan to save tokens either.
+   Use exactly what the task requires — no more, no less.
+- If the task needs multiple files state each file separately
 
-## File Operations
-When you need to create, edit, or delete files, use these EXACT markers:
-
-To CREATE a new file:
-<<<FILE:CREATE:path/to/filename.py>>>
-...full file content here...
-<<<END_FILE>>>
-
-To EDIT an existing file:
-<<<FILE:EDIT:path/to/filename.py>>>
-...complete new file content here...
-<<<END_FILE>>>
-
-To DELETE a file:
-<<<FILE:DELETE:path/to/filename.py>>>
-<<<END_FILE>>>
-
-## Rules:
-- Always use file operation markers when writing code that should be saved
-- Write the COMPLETE file content — never use placeholders like "# rest of code here"
-- For EDIT operations, write the entire file, not just the changed parts
-- Explain what you're doing BEFORE the file markers
-- If multiple files are needed, include all of them
-- Do NOT use markdown code blocks for file content — use the markers instead
-- For conversational answers or explanations with no file changes, respond normally without markers
-"""
-
-CODE_AGENT_SYSTEM_PROMPT = """You are RelayAI — a powerful AI coding agent running in the terminal.
-
-You have full awareness of the user's project structure and file contents.
-You can create, edit, and delete files using special markers.
-
-## File Operation Markers (use these for ALL code that should be written to disk):
-
-CREATE a file:
-<<<FILE:CREATE:path/to/file>>>
-...complete content...
-<<<END_FILE>>>
-
-EDIT a file:
-<<<FILE:EDIT:path/to/file>>>
-...complete new content...
-<<<END_FILE>>>
-
-DELETE a file:
-<<<FILE:DELETE:path/to/file>>>
-<<<END_FILE>>>
-
-## Critical Rules:
-- ALWAYS write complete file contents — no truncation, no placeholders
-- Use relative paths from the project root
-- Explain your approach in plain English before showing file operations
-- If a task needs multiple files, include all of them
-- For questions/explanations with no file changes, respond normally
-- Think about the existing code structure before making changes
+Example output format:
+1. Create class Stack with private list attribute _items
+2. __init__(self): initialize _items as empty list,
+   docstring: Initialize empty stack
+3. push(self, item: Any) -> None: append item to _items,
+   docstring: Push item onto stack
+4. pop(self) -> Any: raise IndexError if _items is empty,
+   else return _items.pop(),
+   docstring: Remove and return top item
+5. is_empty(self) -> bool: return len(_items) == 0,
+   docstring: Return True if stack is empty\
 """
 
 
-def think(query: str, history: list = None, project_context: str = None) -> str:
-    """
-    Send query to Claude, get full reasoned answer with optional file operations.
+def think(query: str, history: list, project_context: str = "") -> Tuple[str, int, int]:
+    """Call Claude to generate a concise implementation plan.
+
+    Returns (plan_text, input_tokens, output_tokens).
     """
     client = anthropic.Anthropic(api_key=auth.get_claude_key())
 
-    system = CODE_AGENT_SYSTEM_PROMPT
+    system = CLAUDE_SYSTEM_PROMPT
     if project_context:
-        system += f"\n\n## Current Project Context:\n{project_context}"
+        system = f"{system}\n\n--- PROJECT CONTEXT ---\n{project_context}"
 
-    messages = []
-    if history:
-        for item in history:
-            messages.append({"role": item["role"], "content": item["content"]})
-
+    messages = list(history)
     messages.append({"role": "user", "content": query})
 
     response = client.messages.create(
         model="claude-sonnet-4-20250514",
-        max_tokens=8096,
+        max_tokens=1500,
         system=system,
         messages=messages,
     )
 
-    return response.content[0].text
+    text = response.content[0].text
+    input_tokens = response.usage.input_tokens
+    output_tokens = response.usage.output_tokens
+    return text, input_tokens, output_tokens
 
 
 def estimate_cost(input_tokens: int, output_tokens: int) -> float:
-    """Estimate Claude API cost in USD."""
-    input_cost = (input_tokens / 1_000_000) * 3.0
-    output_cost = (output_tokens / 1_000_000) * 15.0
-    return input_cost + output_cost
+    """Return estimated USD cost for a Claude API call."""
+    return (input_tokens * 3.0 + output_tokens * 15.0) / 1_000_000

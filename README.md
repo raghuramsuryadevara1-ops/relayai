@@ -1,145 +1,107 @@
-# ⚡ RelayAI
+# RelayAI v2.0
 
-> **Claude thinks. Gemini speaks. Save up to 80% on AI API costs.**
+Claude thinks. Gemini 3 Flash speaks.
+Save up to 80% on AI API costs.
 
-RelayAI is an open-source terminal AI tool (like Claude Code) where **Claude plans and reasons**, then **passes the answer to Gemini to output** — dramatically reducing your Claude API costs by offloading output tokens to Gemini's free tier.
+## How it works
+
+- You type a query in terminal
+- Claude generates a short precise plan
+- Gemini 3 Flash CLI implements it fully
+- You get production ready code for free
 
 ```
-User Input → Claude (thinks & reasons) → Gemini (presents output) → Terminal
+User query
+    ↓
+Claude API → short numbered plan (300-400 tokens)
+    ↓
+Gemini CLI streams full implementation to terminal
+    ↓
+Files written to disk
 ```
 
----
+## Requirements
 
-## 💡 Why RelayAI?
+- Python 3.9+
+- Node.js + npm (for Gemini CLI)
+- Claude API key
 
-Claude charges **$15/million output tokens**. Output tokens are 5x more expensive than input.
-
-RelayAI flips this: Claude produces a concise internal plan/answer, then Gemini (free tier) handles the expensive output step.
-
-| | Normal Claude | RelayAI |
-|---|---|---|
-| Per query (avg) | $0.031 | $0.006 |
-| 100 queries/day | ~$95/mo | ~$18/mo |
-| 1000 queries/day | ~$945/mo | ~$180/mo |
-| **Savings** | | **~80%** |
-
----
-
-## 🚀 Install
+## Install
 
 ```bash
 pip install relayai
+npm install -g @google/gemini-cli
 ```
 
-Or from source:
-```bash
-git clone https://github.com/yourusername/relayai
-cd relayai
-pip install -e .
-```
-
----
-
-## ⚙️ Setup
+## Setup
 
 ```bash
 relayai login
 ```
 
-You'll be asked to provide:
-1. **Claude API Key** — from [console.anthropic.com](https://console.anthropic.com)
-2. **Gemini access** — either:
-   - Gemini API Key (from [ai.google.dev](https://ai.google.dev) — free)
-   - Google Account Login (OAuth — no key needed)
+You will be prompted for your Claude API key.
+Then the setup checks that Gemini CLI is installed and authenticated.
 
----
-
-## 🧑‍💻 Usage
+To authenticate Gemini CLI:
 
 ```bash
-# Ask a single question
-relayai "write a binary search in python"
+gemini
+```
 
-# Fix code / debug
-relayai "fix this bug in my FastAPI route"
+Log in with your Google account when prompted. Gemini CLI is free (1000 requests/day).
 
-# Pipe files
-cat main.py | relayai "review this code"
+## Use
 
-# Interactive chat mode
+```bash
+# Single query
+relayai "write a FastAPI server with /health endpoint"
+
+# Attach a file
+relayai "fix the bug" --file main.py
+
+# Auto-detect file as last argument
+relayai "review this code" main.py
+
+# Pipe content
+cat main.py | relayai "explain this"
+
+# Interactive mode
 relayai --chat
 
-# Show Claude's internal reasoning (debug)
-relayai --verbose "explain transformers"
-
-# Check your config
+# Check configuration
 relayai status
+
+# Clear credentials
+relayai logout
 ```
 
----
+## Cost comparison
 
-## 🔁 How It Works
+| | Direct Claude | RelayAI |
+|---|---|---|
+| Planning | Claude | Claude (~400 tokens) |
+| Implementation | Claude ($15/M tokens) | Gemini CLI (FREE) |
+| Per query savings | — | ~80% |
 
-```
-┌─────────────┐
-│  User Input │
-└──────┬──────┘
-       │
-       ▼
-┌─────────────────────────────────────┐
-│  Claude Sonnet (via your API key)   │
-│  • Understands the full request     │
-│  • Reasons step by step             │
-│  • Produces complete answer         │
-│  • Uses minimal output tokens       │
-└──────────────┬──────────────────────┘
-               │ Claude's answer becomes
-               │ Gemini's INPUT (free)
-               ▼
-┌─────────────────────────────────────┐
-│  Gemini Flash (free tier)           │
-│  • Receives Claude's answer         │
-│  • Presents it clearly              │
-│  • All output tokens are FREE       │
-└──────────────┬──────────────────────┘
-               │
-               ▼
-┌─────────────┐
-│  Terminal   │
-│  Output     │
-└─────────────┘
-```
-
----
-
-## 📂 Project Structure
+## Project structure
 
 ```
 relayai/
 ├── relayai/
-│   ├── __init__.py
-│   ├── cli.py            # Terminal commands
-│   ├── auth.py           # Login & credential management
-│   ├── claude_client.py  # Claude API (thinker)
-│   ├── gemini_client.py  # Gemini API (speaker)
-│   └── pipeline.py       # The bridge logic
+│   ├── cli.py             # Terminal commands
+│   ├── auth.py            # Credential management
+│   ├── claude_client.py   # Claude planning engine
+│   ├── gemini_bridge.py   # Gemini CLI subprocess bridge
+│   ├── pipeline.py        # Main orchestration
+│   ├── file_manager.py    # Parse and write files
+│   └── project_scanner.py # Scan project for context
+├── .gemini/
+│   └── system.md          # Gemini CLI system prompt
 ├── setup.py
-├── requirements.txt
-└── README.md
+├── pyproject.toml
+└── requirements.txt
 ```
 
----
+## License
 
-## 🤝 Contributing
-
-PRs welcome! This is fully open source. Feel free to:
-- Add streaming support
-- Add more model options
-- Improve the OAuth flow
-- Build a config TUI
-
----
-
-## 📄 License
-
-MIT — free to use, modify, and distribute.
+MIT

@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "relayai"
-version = "1.0.0"
-description = "Claude thinks. Gemini speaks. Save up to 80% on AI API costs."
+version = "2.0.0"
+description = "Claude plans. Gemini 3 Flash speaks. Save on API costs with zero quality loss."
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.9"
@@ -22,11 +22,7 @@ dependencies = [
   "click>=8.0",
   "rich>=13.0",
   "anthropic>=0.25.0",
-  "google-generativeai>=0.5.0",
-  "google-auth-oauthlib>=1.0",
-  "google-auth>=2.0",
   "keyring>=24.0",
-  "requests>=2.28",
 ]
 
 [project.optional-dependencies]

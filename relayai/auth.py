@@ -1,19 +1,15 @@
-import os
 import json
-import keyring
+import subprocess
 from pathlib import Path
+
+import keyring
 from rich.console import Console
-from rich.prompt import Prompt, Confirm
-from rich.panel import Panel
 from rich.table import Table
 
 CONFIG_DIR = Path.home() / ".relayai"
 CONFIG_FILE = CONFIG_DIR / "config.json"
-SERVICE_NAME = "relayai"
-
-GEMINI_CLIENT_ID = "YOUR_GOOGLE_CLIENT_ID"
-GEMINI_CLIENT_SECRET = "YOUR_GOOGLE_CLIENT_SECRET"
-GEMINI_SCOPES = ["https://www.googleapis.com/auth/generative-language"]
+KEYRING_SERVICE = "relayai"
+KEYRING_CLAUDE_KEY = "claude_api_key"
 
 
 def _ensure_config_dir():
@@ -31,140 +27,152 @@ def _save_config(data: dict):
     _ensure_config_dir()
     with open(CONFIG_FILE, "w") as f:
         json.dump(data, f, indent=2)
-    CONFIG_FILE.chmod(0o600)
 
 
 def is_configured() -> bool:
-    config = _load_config()
-    has_claude = bool(keyring.get_password(SERVICE_NAME, "claude_api_key"))
-    has_gemini = (
-        bool(keyring.get_password(SERVICE_NAME, "gemini_api_key")) or
-        bool(keyring.get_password(SERVICE_NAME, "gemini_oauth_token"))
-    )
-    return has_claude and has_gemini
+    return bool(get_claude_key())
 
 
 def get_claude_key() -> str:
-    return keyring.get_password(SERVICE_NAME, "claude_api_key") or ""
-
-
-def get_gemini_key() -> str:
-    return keyring.get_password(SERVICE_NAME, "gemini_api_key") or ""
-
-
-def get_gemini_oauth_token() -> str:
-    return keyring.get_password(SERVICE_NAME, "gemini_oauth_token") or ""
-
-
-def get_gemini_mode() -> str:
-    config = _load_config()
-    return config.get("gemini_mode", "api_key")
+    return keyring.get_password(KEYRING_SERVICE, KEYRING_CLAUDE_KEY) or ""
 
 
 def setup_credentials(console: Console):
-    console.print("\n[bold]Step 1: Claude Setup[/bold]")
-    console.print("[dim]Get your API key from: https://console.anthropic.com[/dim]\n")
+    console.print("[bold]Step 1: Claude API Key[/bold]")
+    console.print("[dim]Get your key from: https://console.anthropic.com[/dim]\n")
 
-    claude_key = Prompt.ask("[cyan]Enter Claude API Key[/cyan]", password=True)
-    if not claude_key.startswith("sk-ant-"):
-        console.print("[red]⚠ That doesn't look like a valid Claude API key (should start with sk-ant-)[/red]")
-        if not Confirm.ask("Continue anyway?"):
-            return
+    key = console.input("[cyan]Enter your Claude API key (sk-ant-...):[/cyan] ").strip()
+    if not key.startswith("sk-ant-"):
+        console.print(
+            "[yellow]Warning: key doesn't look like a Claude API key "
+            "(expected sk-ant- prefix)[/yellow]"
+        )
+    keyring.set_password(KEYRING_SERVICE, KEYRING_CLAUDE_KEY, key)
+    console.print("[green]Claude API key saved.[/green]\n")
 
-    console.print("\n[bold]Step 2: Gemini Setup[/bold]")
-    console.print("Choose how to connect Gemini:\n")
-    console.print("  [bold cyan]1[/bold cyan]  API Key  [dim](from https://ai.google.dev — free tier)[/dim]")
-    console.print("  [bold cyan]2[/bold cyan]  Google Account Login  [dim](OAuth — no key needed)[/dim]\n")
+    # Step 2: Check Gemini CLI
+    console.print("[bold]Step 2: Gemini CLI[/bold]")
+    gemini_ok = _check_gemini_installed(console)
+    if gemini_ok:
+        _check_gemini_auth(console)
 
-    choice = Prompt.ask("[cyan]Choose[/cyan]", choices=["1", "2"], default="1")
-
-    config = _load_config()
-
-    if choice == "1":
-        gemini_key = Prompt.ask("[cyan]Enter Gemini API Key[/cyan]", password=True)
-        keyring.set_password(SERVICE_NAME, "gemini_api_key", gemini_key)
-        config["gemini_mode"] = "api_key"
-        console.print("[green]✓ Gemini API key saved.[/green]")
-    else:
-        _google_oauth_login(console)
-        config["gemini_mode"] = "oauth"
-
-    keyring.set_password(SERVICE_NAME, "claude_api_key", claude_key)
-    _save_config(config)
-    console.print("\n[bold green]✓ RelayAI is ready! Try:[/bold green] [bold]relayai \"write a hello world in python\"[/bold]\n")
+    console.print("\n[bold green]Setup complete![/bold green]")
+    console.print("Run [cyan]relayai status[/cyan] to verify everything is working.")
 
 
-def _google_oauth_login(console: Console):
-    """Perform Google OAuth flow for Gemini access."""
+def _check_gemini_installed(console: Console) -> bool:
     try:
-        from google_auth_oauthlib.flow import InstalledAppFlow
-        from google.oauth2.credentials import Credentials
-        import json
+        result = subprocess.run(
+            ["gemini", "--version"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode == 0:
+            version = (result.stdout + result.stderr).strip()
+            console.print(f"[green]Gemini CLI installed:[/green] {version}")
+            return True
+    except FileNotFoundError:
+        pass
+    except Exception:
+        pass
 
-        console.print("\n[dim]Opening browser for Google login...[/dim]")
+    console.print("[red]Gemini CLI not found.[/red]")
+    console.print("Install with: [cyan]npm install -g @google/gemini-cli[/cyan]")
+    console.print("Then login:   [cyan]gemini[/cyan]")
+    return False
 
-        client_config = {
-            "installed": {
-                "client_id": GEMINI_CLIENT_ID,
-                "client_secret": GEMINI_CLIENT_SECRET,
-                "redirect_uris": ["urn:ietf:wg:oauth:2.0:oob", "http://localhost"],
-                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                "token_uri": "https://oauth2.googleapis.com/token"
-            }
-        }
 
-        flow = InstalledAppFlow.from_client_config(client_config, GEMINI_SCOPES)
-        creds = flow.run_local_server(port=0)
-
-        token_data = {
-            "token": creds.token,
-            "refresh_token": creds.refresh_token,
-            "token_uri": creds.token_uri,
-            "client_id": creds.client_id,
-            "client_secret": creds.client_secret,
-        }
-        keyring.set_password(SERVICE_NAME, "gemini_oauth_token", json.dumps(token_data))
-        console.print("[green]✓ Google account connected successfully.[/green]")
-
-    except ImportError:
-        console.print("[red]Missing dependency. Run: pip install google-auth-oauthlib[/red]")
-    except Exception as e:
-        console.print(f"[red]OAuth failed: {e}[/red]")
-        console.print("[dim]Tip: You can also use a Gemini API key instead (option 1).[/dim]")
+def _check_gemini_auth(console: Console) -> bool:
+    try:
+        result = subprocess.run(
+            ["gemini", "-p", "ping", "--output-format", "json"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        combined = (result.stdout + result.stderr).lower()
+        if "auth" in combined or "login" in combined or "unauthorized" in combined or result.returncode != 0:
+            console.print("[yellow]Gemini CLI not authenticated.[/yellow]")
+            console.print(
+                "Run [cyan]gemini[/cyan] in your terminal and log in with your Google account."
+            )
+            return False
+        console.print("[green]Gemini CLI authenticated.[/green]")
+        return True
+    except FileNotFoundError:
+        return False
+    except Exception:
+        return False
 
 
 def clear_credentials():
-    for key in ["claude_api_key", "gemini_api_key", "gemini_oauth_token"]:
-        try:
-            keyring.delete_password(SERVICE_NAME, key)
-        except Exception:
-            pass
+    try:
+        keyring.delete_password(KEYRING_SERVICE, KEYRING_CLAUDE_KEY)
+    except Exception:
+        pass
     if CONFIG_FILE.exists():
         CONFIG_FILE.unlink()
 
 
 def show_status(console: Console):
-    config = _load_config()
     table = Table(title="RelayAI Status", border_style="cyan")
     table.add_column("Component", style="bold")
     table.add_column("Status")
-    table.add_column("Details", style="dim")
 
+    # Claude API key
     claude_key = get_claude_key()
     if claude_key:
-        table.add_row("Claude", "[green]✓ Connected[/green]", f"API Key: ...{claude_key[-6:]}")
+        table.add_row("Claude API Key", "[green]Configured[/green]")
     else:
-        table.add_row("Claude", "[red]✗ Not configured[/red]", "Run: relayai login")
+        table.add_row("Claude API Key", "[red]Not configured[/red]  →  relayai login")
 
-    gemini_mode = config.get("gemini_mode", "not set")
-    if gemini_mode == "api_key" and get_gemini_key():
-        key = get_gemini_key()
-        table.add_row("Gemini", "[green]✓ Connected[/green]", f"API Key: ...{key[-6:]}")
-    elif gemini_mode == "oauth" and get_gemini_oauth_token():
-        table.add_row("Gemini", "[green]✓ Connected[/green]", "Google OAuth")
+    # Gemini CLI installed
+    gemini_installed = _gemini_installed()
+    if gemini_installed:
+        table.add_row("Gemini CLI", "[green]Installed[/green]")
     else:
-        table.add_row("Gemini", "[red]✗ Not configured[/red]", "Run: relayai login")
+        table.add_row(
+            "Gemini CLI",
+            "[red]Not installed[/red]  →  npm install -g @google/gemini-cli",
+        )
+
+    # Gemini CLI authenticated
+    if gemini_installed:
+        auth_ok = _gemini_auth_ok()
+        if auth_ok:
+            table.add_row("Gemini CLI Auth", "[green]Authenticated[/green]")
+        else:
+            table.add_row("Gemini CLI Auth", "[yellow]Not authenticated[/yellow]  →  run: gemini")
+    else:
+        table.add_row("Gemini CLI Auth", "[dim]N/A (Gemini CLI not installed)[/dim]")
 
     console.print()
     console.print(table)
     console.print()
+
+
+def _gemini_installed() -> bool:
+    try:
+        result = subprocess.run(
+            ["gemini", "--version"], capture_output=True, text=True, timeout=10
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
+def _gemini_auth_ok() -> bool:
+    try:
+        result = subprocess.run(
+            ["gemini", "-p", "ping", "--output-format", "json"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        combined = (result.stdout + result.stderr).lower()
+        if "auth" in combined or "login" in combined or "unauthorized" in combined or result.returncode != 0:
+            return False
+        return True
+    except Exception:
+        return False

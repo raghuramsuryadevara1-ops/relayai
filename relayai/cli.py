@@ -1,139 +1,143 @@
-import click
-import sys
 import os
-from pathlib import Path
+import sys
+
+import click
 from rich.console import Console
-from rich.panel import Panel
-from rich.text import Text
-from . import auth, pipeline
 
 console = Console()
 
-BANNER = """
-[bold cyan]
+BANNER = """[bold cyan]
 ██████╗ ███████╗██╗      █████╗ ██╗   ██╗ █████╗ ██╗
 ██╔══██╗██╔════╝██║     ██╔══██╗╚██╗ ██╔╝██╔══██╗██║
 ██████╔╝█████╗  ██║     ███████║ ╚████╔╝ ███████║██║
 ██╔══██╗██╔══╝  ██║     ██╔══██║  ╚██╔╝  ██╔══██║██║
 ██║  ██║███████╗███████╗██║  ██║   ██║   ██║  ██║██║
 ╚═╝  ╚═╝╚══════╝╚══════╝╚═╝  ╚═╝   ╚═╝   ╚═╝  ╚═╝╚═╝
-[/bold cyan]
-[dim]Claude thinks. Gemini speaks. You save.[/dim]
+[/bold cyan][dim]Claude thinks. Gemini 3 Flash speaks.[/dim]
 """
 
+
 @click.group(invoke_without_command=True)
-@click.argument("prompt", required=False, nargs=-1)
+@click.argument("prompt", nargs=-1)
 @click.option("--chat", "-c", is_flag=True, help="Start interactive chat mode")
-@click.option("--verbose", "-v", is_flag=True, help="Show Claude's internal plan")
 @click.option("--file", "-f", "file_path", default=None, help="Attach a file to your query")
 @click.pass_context
-def cli(ctx, prompt, chat, verbose, file_path):
-    """RelayAI - Claude plans, Gemini speaks. Save up to 80% on API costs."""
-    if ctx.invoked_subcommand:
+def cli(ctx, prompt, chat, file_path):
+    """RelayAI — Claude plans. Gemini 3 Flash speaks."""
+    if ctx.invoked_subcommand is not None:
         return
+
+    from . import auth, pipeline
 
     if not auth.is_configured():
-        console.print("\n[yellow]⚠ Not configured yet. Run:[/yellow] [bold]relayai login[/bold]\n")
-        return
+        console.print("[yellow]Not configured. Run:[/yellow] [cyan]relayai login[/cyan]")
+        sys.exit(1)
 
-    if chat:
-        interactive_mode(verbose)
-        return
-
-    # Read from stdin pipe (cat file.py | relayai "review this")
+    # Detect piped stdin
     piped_content = None
     if not sys.stdin.isatty():
-        piped_content = sys.stdin.read().strip()
+        piped_content = sys.stdin.read().strip() or None
 
-    # Auto-detect if last argument is a file path
+    # Auto-detect file path as last positional argument
     prompt_list = list(prompt)
     if prompt_list and not file_path:
-        last_arg = prompt_list[-1]
-        if os.path.isfile(last_arg):
-            file_path = last_arg
+        last = prompt_list[-1]
+        if os.path.isfile(last):
+            file_path = last
             prompt_list = prompt_list[:-1]
 
-    if prompt_list or piped_content or file_path:
-        query = " ".join(prompt_list) if prompt_list else ""
-        file_content = _read_file(file_path) if file_path else None
-        pipeline.run(query, verbose=verbose, file_content=file_content, piped_content=piped_content)
-    else:
+    file_content = _read_file(file_path) if file_path else None
+
+    if chat:
+        interactive_mode(file_content, piped_content)
+        return
+
+    if not prompt_list and not piped_content and not file_content:
         console.print(BANNER)
-        console.print("[dim]Usage:[/dim] [bold]relayai[/bold] [cyan]\"your question here\"[/cyan]")
-        console.print("[dim]      [/dim] [bold]relayai --file main.py[/bold] [cyan]\"fix this code\"[/cyan]")
-        console.print("[dim]      [/dim] [bold]relayai --chat[/bold]   [dim]for interactive mode[/dim]\n")
+        console.print('Usage: [cyan]relayai "your query"[/cyan]  or  [cyan]relayai --chat[/cyan]')
+        return
+
+    query = " ".join(prompt_list)
+    pipeline.run(
+        query=query,
+        history=[],
+        file_content=file_content,
+        piped_content=piped_content,
+        scan_project=True,
+    )
 
 
-def _read_file(file_path: str) -> dict:
-    """Read a file and return its content with metadata."""
-    path = Path(file_path)
-    if not path.exists():
-        console.print(f"[red]❌ File not found: {file_path}[/red]")
-        return None
+def interactive_mode(file_content=None, piped_content=None):
+    from . import pipeline
 
-    # Check file size (limit to 100KB)
-    size = path.stat().st_size
-    if size > 100_000:
-        console.print(f"[yellow]⚠ File is large ({size // 1000}KB). Only first 100KB will be used.[/yellow]")
+    console.print(BANNER)
+    console.print("[dim]Interactive mode — type 'quit' to exit.[/dim]\n")
 
+    history = []
+    while True:
+        try:
+            user_input = console.input("[bold cyan]You:[/bold cyan] ").strip()
+        except (KeyboardInterrupt, EOFError):
+            console.print("\n[dim]Goodbye![/dim]")
+            break
+
+        if user_input.lower() in ("quit", "exit", "q"):
+            console.print("[dim]Goodbye![/dim]")
+            break
+
+        if not user_input:
+            continue
+
+        plan = pipeline.run(
+            query=user_input,
+            history=history,
+            file_content=file_content,
+            piped_content=piped_content,
+            scan_project=len(history) == 0,
+        )
+        if plan:
+            history.append({"role": "user", "content": user_input})
+            history.append({"role": "assistant", "content": plan})
+
+        # File and pipe content only apply to the first turn
+        file_content = None
+        piped_content = None
+
+
+def _read_file(file_path: str):
+    MAX_SIZE = 100 * 1024  # 100 KB
+    ext = os.path.splitext(file_path)[1].lstrip(".")
     try:
-        with open(path, "r", encoding="utf-8", errors="ignore") as f:
-            content = f.read(100_000)
-        console.print(f"[dim]📎 Attached: {path.name} ({len(content.splitlines())} lines)[/dim]")
-        return {"name": path.name, "content": content, "extension": path.suffix}
-    except Exception as e:
-        console.print(f"[red]❌ Could not read file: {e}[/red]")
+        with open(file_path, "r", encoding="utf-8", errors="replace") as f:
+            content = f.read(MAX_SIZE)
+        return {"name": os.path.basename(file_path), "content": content, "extension": ext}
+    except Exception as exc:
+        console.print(f"[red]Could not read file {file_path}: {exc}[/red]")
         return None
 
 
 @cli.command()
 def login():
-    """Configure your Claude and Gemini credentials."""
+    """Set up Claude API key and verify Gemini CLI."""
+    from . import auth
     console.print(BANNER)
-    console.print(Panel("[bold]Setup RelayAI[/bold]\nConfigure your Claude and Gemini access.", border_style="cyan"))
     auth.setup_credentials(console)
 
 
 @cli.command()
 def logout():
-    """Remove saved credentials."""
+    """Clear all stored credentials."""
+    from . import auth
     auth.clear_credentials()
-    console.print("[green]✓ Credentials cleared.[/green]")
+    console.print("[green]Credentials cleared.[/green]")
 
 
 @cli.command()
 def status():
     """Show current configuration status."""
+    from . import auth
     auth.show_status(console)
 
 
-@cli.command()
-def version():
-    """Show RelayAI version."""
-    console.print("[bold cyan]RelayAI[/bold cyan] v1.0.0")
-
-
-def interactive_mode(verbose=False):
-    """Start an interactive REPL session."""
-    console.print(BANNER)
-    console.print(Panel(
-        "[bold cyan]Interactive Mode[/bold cyan]\n"
-        "[dim]Type your questions below. Type [bold]exit[/bold] or [bold]quit[/bold] to stop.[/dim]",
-        border_style="cyan"
-    ))
-    history = []
-    while True:
-        try:
-            query = console.input("\n[bold cyan]You >[/bold cyan] ").strip()
-            if not query:
-                continue
-            if query.lower() in ("exit", "quit", "q"):
-                console.print("\n[dim]Goodbye! 👋[/dim]\n")
-                break
-            pipeline.run(query, verbose=verbose, history=history)
-            history.append({"role": "user", "content": query})
-        except KeyboardInterrupt:
-            console.print("\n\n[dim]Interrupted. Goodbye! 👋[/dim]\n")
-            break
-        except Exception as e:
-            console.print(f"[red]Error: {e}[/red]")
+def main():
+    cli()
