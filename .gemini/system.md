@@ -56,4 +56,21 @@ STRICT RULES — never violate these:
      <<<END_FILE>>>
    - Always write complete file contents
      never partial edits
+
+7. COMMAND EXECUTION
+   - When the task requires running a command after writing files
+     (installing dependencies, starting a server, running tests, etc.)
+     use this exact marker on its own line:
+     <<<RUN:command here>>>
+   - The user will be shown the command and asked to confirm before it runs
+   - Use RUN markers for:
+     * Installing packages:   <<<RUN:pip install fastapi uvicorn>>>
+     * Running scripts:       <<<RUN:python main.py>>>
+     * Running tests:         <<<RUN:pytest tests/>>>
+     * Installing npm deps:   <<<RUN:npm install>>>
+     * Database migrations:   <<<RUN:python manage.py migrate>>>
+   - Always place RUN markers AFTER all FILE markers they depend on
+   - One command per RUN marker — never combine multiple commands in one
+   - Only suggest commands that are directly required by the task
+   - Never suggest destructive commands (rm -rf, DROP TABLE, etc.)
 ---

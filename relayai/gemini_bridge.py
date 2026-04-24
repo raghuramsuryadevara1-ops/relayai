@@ -1,8 +1,14 @@
 import os
+import shutil
 import sys
 import subprocess
 import threading
 from pathlib import Path
+
+
+def _gemini_exe() -> str:
+    """Return the resolved gemini executable path (handles gemini.cmd on Windows)."""
+    return shutil.which("gemini") or "gemini"
 
 
 class _ModelNotFoundError(Exception):
@@ -32,7 +38,7 @@ def execute(plan_text: str) -> str:
     # First attempt: gemini-3-flash-preview
     try:
         _run_gemini(
-            ["gemini", "-p", plan_text, "-m", "gemini-3-flash-preview", "--output-format", "text"],
+            [_gemini_exe(), "-p", plan_text, "-m", "gemini-3-flash-preview", "--output-format", "text"],
             env=env,
             output_collector=full_output,
         )
@@ -43,7 +49,7 @@ def execute(plan_text: str) -> str:
     # Fallback: default Gemini CLI model
     full_output.clear()
     _run_gemini(
-        ["gemini", "-p", plan_text, "--output-format", "text"],
+        [_gemini_exe(), "-p", plan_text, "--output-format", "text"],
         env=env,
         output_collector=full_output,
     )
@@ -89,7 +95,11 @@ def _run_gemini(cmd: list, env: dict, output_collector: list) -> None:
     stderr_thread.start()
 
     for line in process.stdout:
-        sys.stdout.write(line)
+        try:
+            sys.stdout.write(line)
+        except UnicodeEncodeError:
+            # Windows cmd.exe may be cp1252 — replace unencodable chars
+            sys.stdout.write(line.encode(sys.stdout.encoding, errors="replace").decode(sys.stdout.encoding))
         sys.stdout.flush()
         output_collector.append(line.rstrip("\n"))
 

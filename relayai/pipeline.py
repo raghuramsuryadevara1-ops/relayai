@@ -57,10 +57,14 @@ def run(
     console.print("\n[bold cyan]Gemini 3 Flash implementing...[/bold cyan]\n")
     gemini_output = gemini_bridge.execute(plan)
 
-    # Parse file operations from Gemini output and write them
+    # Parse and execute file operations, then run any RUN commands
     operations = file_manager.parse_file_operations(gemini_output)
     if operations:
         file_manager.confirm_and_execute(operations)
+
+    commands = file_manager.parse_run_commands(gemini_output)
+    if commands:
+        file_manager.confirm_and_run(commands)
 
     # Cost summary
     _show_cost_summary(input_tokens, output_tokens, gemini_output)
